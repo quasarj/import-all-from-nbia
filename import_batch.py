@@ -75,8 +75,8 @@ def create_activity(activity_name: str, user: str) -> int:
     quoted server-side rather than spliced into the SQL string.
     """
     sql = (
-        "insert into activity (brief_description, when_created, who_created) "
-        "values (:'activity_name', now(), :'user') returning activity_id;"
+        "insert into activity (brief_description, when_created, when_closed, who_created) "
+        "values (:'activity_name', now(), now(), :'user') returning activity_id;"
     )
     command = [
         "psql",
