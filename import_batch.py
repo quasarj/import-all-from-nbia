@@ -8,6 +8,10 @@ For every row that does not yet have an ``activity_id``:
 2. Write that id back into the CSV so a re-run skips the row.
 3. Run ``./start-background-process ImportInPlaceFromPublic ...`` with the
    row's collection, site and visibility.
+
+With ``--existing-activities`` the CSV is expected to already carry an
+``activity_id`` for every row: steps 1 and 2 are skipped and only step 3 runs.
+Rows without an ``activity_id`` are skipped with a warning.
 """
 
 import argparse
@@ -41,6 +45,14 @@ def parse_args() -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="print what would happen without touching the DB or starting jobs",
+    )
+    parser.add_argument(
+        "--existing-activities",
+        action="store_true",
+        help=(
+            "activity_id is already filled in: skip activity creation and only "
+            "run start-background-process for rows that have one"
+        ),
     )
     return parser.parse_args()
 
@@ -135,6 +147,15 @@ def start_import(command: list[str]) -> None:
         )
 
 
+def run_import(row: dict[str, str], activity_id: int, user: str, dry_run: bool) -> None:
+    command = build_import_command(row, activity_id, user)
+    if dry_run:
+        log.info("[dry-run] would run: %s", " ".join(command))
+        return
+    log.info("running: %s", " ".join(command))
+    start_import(command)
+
+
 def process_row(
     row: dict[str, str],
     user: str,
@@ -148,19 +169,30 @@ def process_row(
 
     if dry_run:
         log.info("[dry-run] would create activity %r", name)
-        log.info(
-            "[dry-run] would run: %s", " ".join(build_import_command(row, 0, user))
-        )
+        run_import(row, 0, user, dry_run)
         return
 
     activity_id = create_activity(name, user)
     log.info("created activity %s for %r", activity_id, name)
     row["activity_id"] = str(activity_id)
     persist()
+    run_import(row, activity_id, user, dry_run)
 
-    command = build_import_command(row, activity_id, user)
-    log.info("running: %s", " ".join(command))
-    start_import(command)
+
+def process_existing_row(row: dict[str, str], user: str, dry_run: bool) -> None:
+    """Start the import for a row whose activity already exists; never touch the DB."""
+    name = row["activity_name"]
+    raw_id = row["activity_id"].strip()
+    if not raw_id:
+        log.warning(
+            "skip %r: no activity_id (use a run without --existing-activities)", name
+        )
+        return
+    try:
+        activity_id = int(raw_id)
+    except ValueError as exc:
+        raise ImportBatchError(f"bad activity_id {raw_id!r} for {name!r}") from exc
+    run_import(row, activity_id, user, dry_run)
 
 
 def main() -> int:
@@ -177,7 +209,10 @@ def main() -> int:
         write_rows(args.csv_file, fieldnames, rows)
 
     for row in rows:
-        process_row(row, args.user, args.dry_run, persist)
+        if args.existing_activities:
+            process_existing_row(row, args.user, args.dry_run)
+        else:
+            process_row(row, args.user, args.dry_run, persist)
     return 0
 
 
