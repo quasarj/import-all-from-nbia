@@ -1,0 +1,3 @@
+#!/bin/sh
+# Local stub for testing only. The real script exists in the Posda environment.
+echo "stub start-background-process called with: $*"
