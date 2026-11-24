@@ -84,6 +84,8 @@ def build_timepoint_command(
         user,
         "--include_all_files",
         "1",
+        "--queue",
+        "special",
     ]
 
 
